@@ -19,7 +19,7 @@ function loadServiceAccount() {
     }
   }
 
-  const saEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
+  const saEnv = process.env.FIREBASE_CREDENTIALS;
   if (!saEnv) {
     throw new Error('No FIREBASE_SERVICE_ACCOUNT_PATH or FIREBASE_SERVICE_ACCOUNT found in .env');
   }
