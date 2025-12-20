@@ -7,8 +7,8 @@ const User = require('../models/User');
 const verifyToken = require('../middleware/auth');
 const nodemailer = require('nodemailer');
 const admin = require('firebase-admin');
+const { bucket } = require('../firebaseAdmin');
 
-const bucket = admin.storage().bucket();
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
