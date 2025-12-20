@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 function loadServiceAccount() {
-  const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  const saPath = process.env.FIREBASE_CREDENTIALS;
   if (saPath) {
     const resolved = path.isAbsolute(saPath) ? saPath : path.join(process.cwd(), saPath);
     if (!fs.existsSync(resolved)) {
@@ -80,4 +80,5 @@ module.exports = async function verifyToken(req, res, next) {
       details: error.message 
     });
   }
+
 };
