@@ -6,38 +6,18 @@ const cors = require('cors');
 const path = require('path');
 const admin = require('firebase-admin');
 
-// Initialize Firebase Admin
-let serviceAccount;
 
-if (process.env.FIREBASE_CREDENTIALS) {
-  try {
-    serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
-    console.log('Firebase credentials loaded from FIREBASE_CREDENTIALS env var (production)');
-  } catch (err) {
-    console.error('FAILED to parse FIREBASE_CREDENTIALS JSON. Check formatting.');
-    throw err;
-  }
-} else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
-  // Optional: support local file path for dev
-  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-  try {
-    serviceAccount = require(path);
-    console.log(`Firebase credentials loaded from file: ${path}`);
-  } catch (err) {
-    console.error(`FIREBASE SERVICE ACCOUNT LOAD ERROR: File not found at ${path}`);
-    throw err;
-  }
-} else {
-  throw new Error('No Firebase credentials provided. Set FIREBASE_CREDENTIALS or FIREBASE_SERVICE_ACCOUNT_PATH');
+const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    storageBucket: 'layerlabs-e738e.appspot.com',
+  });
 }
 
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  storageBucket: 'layerlabs-e738e.firebasestorage.app', // e.g., "three-d-toys.appspot.com"
-});
-
 const bucket = admin.storage().bucket();
+
 
 const customizedRoutes = require('./routes/customizedRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
