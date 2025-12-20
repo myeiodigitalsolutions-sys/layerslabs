@@ -10,12 +10,28 @@ const admin = require('firebase-admin');
 let serviceAccount;
 
 if (process.env.FIREBASE_CREDENTIALS) {
-  // Production (Render): parse from env var
-  serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
+    console.log('Firebase credentials loaded from FIREBASE_CREDENTIALS env var (production)');
+  } catch (err) {
+    console.error('FAILED to parse FIREBASE_CREDENTIALS JSON. Check formatting.');
+    throw err;
+  }
+} else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
+  // Optional: support local file path for dev
+  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  try {
+    serviceAccount = require(path);
+    console.log(`Firebase credentials loaded from file: ${path}`);
+  } catch (err) {
+    console.error(`FIREBASE SERVICE ACCOUNT LOAD ERROR: File not found at ${path}`);
+    throw err;
+  }
 } else {
-  // Local development: load from file
-  serviceAccount = require('./serviceAccount.json');
+  throw new Error('No Firebase credentials provided. Set FIREBASE_CREDENTIALS or FIREBASE_SERVICE_ACCOUNT_PATH');
 }
+
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   storageBucket: 'layerlabs-e738e.firebasestorage.app', // e.g., "three-d-toys.appspot.com"
