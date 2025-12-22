@@ -11,14 +11,21 @@ const { bucket } = require('../firebaseAdmin');
 
 
 const transporter = nodemailer.createTransport({
-  host: process.env.BREVO_SMTP_HOST,
-  port: Number(process.env.BREVO_SMTP_PORT),
-  secure: false, // TLS
+  host: process.env.BREVO_SMTP_HOST, // smtp-relay.brevo.com
+  port: 465,
+  secure: true, // ✅ SSL REQUIRED on Render
   auth: {
-    user: process.env.BREVO_SMTP_USER,
+    user: process.env.BREVO_SMTP_USER, // apikey
     pass: process.env.BREVO_SMTP_PASS
-  }
+  },
+  connectionTimeout: 10000, // 10s
+  greetingTimeout: 10000,
+  socketTimeout: 10000
 });
+
+
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+
 
 // Debug check (very important)
 transporter.verify((err) => {
