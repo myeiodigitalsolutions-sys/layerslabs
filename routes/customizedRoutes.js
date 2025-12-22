@@ -11,12 +11,24 @@ const { bucket } = require('../firebaseAdmin');
 
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: process.env.BREVO_SMTP_HOST,
+  port: Number(process.env.BREVO_SMTP_PORT),
+  secure: false, // TLS
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,  // This must be the App Password
-  },
+    user: process.env.BREVO_SMTP_USER,
+    pass: process.env.BREVO_SMTP_PASS
+  }
 });
+
+// Debug check (very important)
+transporter.verify((err) => {
+  if (err) {
+    console.error("❌ Brevo SMTP error:", err);
+  } else {
+    console.log("✅ Brevo SMTP connected");
+  }
+});
+
 
 // Helper: Upload base64 file to Firebase Storage
 async function uploadFileToFirebase(base64String, originalName) {
@@ -158,7 +170,7 @@ router.patch('/:id', verifyToken, async (req, res) => {
   }[order.status] || order.status;
 
   const mailOptions = {
-from: process.env.EMAIL_USER,  // or '"Your Shop Name" <myeiokln@gmail.com>'
+  from: `"LayerLabs" <${process.env.EMAIL_FROM}>`,
   to: order.email,
   subject: `Update on Your Custom Order #${order._id.toString().slice(-6)}`,
     html: `
@@ -218,7 +230,8 @@ from: process.env.EMAIL_USER,  // or '"Your Shop Name" <myeiokln@gmail.com>'
             </div>
 
             <p>We will keep you posted on any further progress.</p>
-            <a href="http://localhost:3000/order-custom" class="btn">View Order</a>
+         <a href="${FRONTEND_URL}/order-custom" class="btn">View Order</a>
+
           </div>
 
           <!-- Footer -->
