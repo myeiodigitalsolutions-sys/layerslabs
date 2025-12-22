@@ -35,4 +35,27 @@ router.patch('/:id/read', verifyToken, async (req, res) => {
   }
 });
 
+// PATCH mark all notifications as read
+router.patch('/mark-all-read', verifyToken, async (req, res) => {
+  try {
+    const uid = (req.user && req.user.uid) || req.uid || (req.decodedToken && req.decodedToken.uid);
+    if (!uid) return res.status(401).json({ error: 'Unauthenticated' });
+
+    // Update all unread notifications for this user
+    const result = await Notification.updateMany(
+      { uid, read: false },
+      { $set: { read: true } }
+    );
+
+    return res.json({ 
+      success: true, 
+      message: 'All notifications marked as read',
+      modifiedCount: result.modifiedCount 
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
