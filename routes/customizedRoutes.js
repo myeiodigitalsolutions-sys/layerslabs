@@ -171,20 +171,124 @@ router.patch('/:id', verifyToken, async (req, res) => {
         },
         to: [{ email: order.email }],
         subject: `Update on Your Custom Order #${order._id.toString().slice(-6)}`,
-        htmlContent: `
+     htmlContent: `
 <!DOCTYPE html>
-<html>
-<body style="font-family:Arial">
-  <h2>Custom Order Update</h2>
-  <p>Hello <strong>${order.name}</strong>,</p>
-  <p><strong>Status:</strong> ${statusText}</p>
-  ${order.price ? `<p><strong>Price:</strong> ₹${order.price}</p>` : ''}
-  <p>
-    <a href="${FRONTEND_URL}/order-custom">View Order</a>
-  </p>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Custom Order Update</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,Helvetica,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:20px 0;">
+    <tr>
+      <td align="center">
+
+        <!-- Container -->
+        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:#c62828;padding:24px;text-align:center;">
+              <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:600;">
+                LayerLabs – Custom Order Update
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding:32px;color:#333333;">
+
+              <p style="font-size:16px;margin-top:0;">
+                Hello <strong>${order.name}</strong>,
+              </p>
+
+              <p style="font-size:15px;color:#555;">
+                Your custom order has been updated. Please find the latest details below:
+              </p>
+
+              <!-- Order Card -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;border:1px solid #e0e0e0;border-radius:8px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <h3 style="margin-top:0;color:#b71c1c;font-size:18px;">
+                      Order Summary
+                    </h3>
+
+                    ${order.price ? `
+                    <p style="margin:8px 0;font-size:15px;">
+                      <strong>Price:</strong> ₹${order.price}
+                    </p>` : ''}
+
+                    <p style="margin:8px 0;font-size:15px;">
+                      <strong>Status:</strong> ${statusText}
+                    </p>
+
+                    <p style="margin:8px 0;font-size:15px;">
+                      <strong>Expected Delivery:</strong>
+                      ${
+                        order.expectedDelivery
+                          ? new Date(order.expectedDelivery).toLocaleDateString('en-IN', {
+                              weekday: 'long',
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                            })
+                          : 'To be confirmed'
+                      }
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="font-size:14px;color:#555;">
+                We’ll keep you informed as your order progresses.
+              </p>
+
+              <!-- Button -->
+              <div style="text-align:center;margin-top:30px;">
+                <a href="${FRONTEND_URL}/order-custom"
+                   style="
+                     background:#c62828;
+                     color:#ffffff;
+                     text-decoration:none;
+                     padding:12px 28px;
+                     border-radius:6px;
+                     font-size:15px;
+                     font-weight:600;
+                     display:inline-block;
+                   ">
+                  View Your Order
+                </a>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f5f5f5;padding:20px;text-align:center;color:#777;font-size:12px;">
+              <p style="margin:0;">
+                Thank you for choosing <strong>LayerLabs</strong>
+              </p>
+              <p style="margin:6px 0 0;">
+                Order ID: ${order._id.toString()}
+              </p>
+            </td>
+          </tr>
+
+        </table>
+        <!-- /Container -->
+
+      </td>
+    </tr>
+  </table>
+
 </body>
 </html>
-        `,
+`,
       });
 
       console.log(`📧 Email sent to ${order.email}`);
