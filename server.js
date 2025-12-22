@@ -12,7 +12,7 @@ const { bucket } = require('./firebaseAdmin'); // Only import what you need
 
 const customizedRoutes = require('./routes/customizedRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
-
+const contactRoutes = require('./routes/contact');
 const app = express();
 
 app.use(cors());
@@ -27,6 +27,7 @@ app.use('/api/customized', customizedRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/cart', require('./routes/cartRoutes'));
+app.use('/api/contact', contactRoutes);
 
 // MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/threeDModuleToys';
