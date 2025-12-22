@@ -1,72 +1,60 @@
 // routes/customizedRoutes.js
 const express = require('express');
 const router = express.Router();
+
 const CustomizedOrder = require('../models/CustomizedOrder');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const verifyToken = require('../middleware/auth');
-const nodemailer = require('nodemailer');
-const admin = require('firebase-admin');
 const { bucket } = require('../firebaseAdmin');
 
+const SibApiV3Sdk = require('sib-api-v3-sdk');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.BREVO_SMTP_HOST, // smtp-relay.brevo.com
-  port: 465,
-  secure: true, // ✅ SSL REQUIRED on Render
-  auth: {
-    user: process.env.BREVO_SMTP_USER, // apikey
-    pass: process.env.BREVO_SMTP_PASS
-  },
-  connectionTimeout: 10000, // 10s
-  greetingTimeout: 10000,
-  socketTimeout: 10000
-});
-
+// =====================
+// Brevo API Setup
+// =====================
+const client = SibApiV3Sdk.ApiClient.instance;
+client.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
+const transactionalApi = new SibApiV3Sdk.TransactionalEmailsApi();
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
-
-// Debug check (very important)
-transporter.verify((err) => {
-  if (err) {
-    console.error("❌ Brevo SMTP error:", err);
-  } else {
-    console.log("✅ Brevo SMTP connected");
-  }
-});
-
-
-// Helper: Upload base64 file to Firebase Storage
+// =====================
+// Helper: Upload base64 to Firebase
+// =====================
 async function uploadFileToFirebase(base64String, originalName) {
   if (!base64String) return null;
 
-  // Extract mime type and buffer
-  const matches = base64String.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+  const matches = base64String.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
   if (!matches || matches.length !== 3) {
     throw new Error('Invalid base64 string');
   }
 
   const mimeType = matches[1];
-  const base64Data = matches[2];
-  const buffer = Buffer.from(base64Data, 'base64');
+  const buffer = Buffer.from(matches[2], 'base64');
 
-  // Use original extension if provided, else from mime
-  const ext = originalName ? originalName.split('.').pop() : mimeType.split('/')[1] || 'file';
-  const uniquePrefix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-  const filename = `customized/${uniquePrefix}-${originalName || 'file'}.${ext}`;
+  const ext =
+    originalName?.split('.').pop() ||
+    mimeType.split('/')[1] ||
+    'file';
+
+  const filename = `customized/${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}.${ext}`;
+
   const file = bucket.file(filename);
 
   await file.save(buffer, {
     metadata: { contentType: mimeType },
-    public: true, // Makes it publicly accessible
+    public: true,
   });
 
-  // Return public URL
   return `https://storage.googleapis.com/${bucket.name}/${filename}`;
 }
 
-// CREATE custom order
+// =====================
+// CREATE CUSTOM ORDER
+// =====================
 router.post('/', verifyToken, async (req, res) => {
   try {
     const uid = req.user?.uid;
@@ -75,27 +63,20 @@ router.post('/', verifyToken, async (req, res) => {
     const user = await User.findOne({ uid });
     if (!user) return res.status(404).json({ error: 'User profile not found' });
 
-    const { height, length, material, notes, images } = req.body; // images: [{base64, originalName}]
+    const { height, length, material, notes, images } = req.body;
 
-    // Upload files
     const uploadedUrls = [];
     if (Array.isArray(images)) {
       for (const img of images) {
-        if (img?.base64 && img.base64.startsWith('data:')) {
-          try {
-            const url = await uploadFileToFirebase(img.base64, img.originalName);
-            if (url) uploadedUrls.push(url);
-          } catch (uploadErr) {
-            console.error('File upload failed:', uploadErr);
-            // Continue with others
-          }
+        if (img?.base64?.startsWith('data:')) {
+          const url = await uploadFileToFirebase(img.base64, img.originalName);
+          if (url) uploadedUrls.push(url);
         }
       }
     }
 
     const order = await CustomizedOrder.create({
       uid,
-
       name: user.name,
       email: user.email,
       phone: user.phone,
@@ -103,13 +84,11 @@ router.post('/', verifyToken, async (req, res) => {
       city: user.city,
       state: user.state,
       pincode: user.pincode,
-
       images: uploadedUrls,
       height: Number(height) || null,
       length: Number(length) || null,
       material,
       notes,
-
       price: null,
       payment: "COD",
       paymentStatus: "pending",
@@ -123,19 +102,25 @@ router.post('/', verifyToken, async (req, res) => {
   }
 });
 
-// ADMIN – get all custom orders
+// =====================
+// ADMIN – GET ALL
+// =====================
 router.get('/', verifyToken, async (req, res) => {
   const orders = await CustomizedOrder.find().sort({ createdAt: -1 });
   res.json(orders);
 });
 
-// USER – get own custom orders
+// =====================
+// USER – GET OWN
+// =====================
 router.get('/my', verifyToken, async (req, res) => {
   const orders = await CustomizedOrder.find({ uid: req.user.uid }).sort({ createdAt: -1 });
   res.json(orders);
 });
 
-// ADMIN – update custom order
+// =====================
+// ADMIN – UPDATE + EMAIL
+// =====================
 router.patch('/:id', verifyToken, async (req, res) => {
   const { price, status, expectedDelivery } = req.body;
 
@@ -143,147 +128,91 @@ router.patch('/:id', verifyToken, async (req, res) => {
     const order = await CustomizedOrder.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Not found' });
 
-    // Track if anything changed
     const changes = [];
+
     if (price !== undefined && order.price !== Number(price)) {
       order.price = Number(price);
       changes.push(`Price updated to ₹${price}`);
     }
+
     if (status && order.status !== status) {
       order.status = status;
-      changes.push(`Status changed to ${status.replace('_', ' ')}`);
+      changes.push(`Status changed to ${status}`);
     }
-    if (expectedDelivery && (!order.expectedDelivery || new Date(order.expectedDelivery).toISOString().slice(0,10) !== expectedDelivery)) {
+
+    if (expectedDelivery) {
       order.expectedDelivery = new Date(expectedDelivery);
-      changes.push(`Expected delivery: ${new Date(expectedDelivery).toLocaleDateString()}`);
+      changes.push(`Expected delivery updated`);
     }
 
     await order.save();
 
-    // Create in-app notification (existing)
     await Notification.create({
       uid: order.uid,
       title: "Custom Order Update",
       message: `Your custom order is now ₹${order.price || 'Not set'} – Status: ${order.status}`,
     });
 
-    // === NEW: Send Email ===
-   if (order.email && changes.length > 0) {
-  const statusText = {
-    pending: "Pending",
-    priced: "Priced (Quote Sent)",
-    in_progress: "In Progress",
-    completed: "Completed"
-  }[order.status] || order.status;
+    // =====================
+    // SEND EMAIL VIA BREVO API
+    // =====================
+    if (order.email && changes.length > 0) {
+      const statusText = {
+        pending: "Pending",
+        priced: "Priced (Quote Sent)",
+        in_progress: "In Progress",
+        completed: "Completed",
+      }[order.status] || order.status;
 
-  const mailOptions = {
-  from: `"LayerLabs" <${process.env.EMAIL_FROM}>`,
-  to: order.email,
-  subject: `Update on Your Custom Order #${order._id.toString().slice(-6)}`,
-    html: `
-       <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Custom Order Update</title>
-        <style>
-          body { margin:0; padding:0; background:#f9f9f9; font-family:Arial,Helvetica,sans-serif; }
-          .container { max-width:600px; margin:20px auto; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,.08); }
-          .header { background:#c62828; color:#fff; padding:24px; text-align:center; }
-          .header h1 { margin:0; font-size:24px; font-weight:600; }
-          .content { padding:32px; }
-          .card { background:#fff; border:1px solid #e0e0e0; border-radius:8px; padding:20px; }
-          .card h2 { margin-top:0; color:#b71c1c; font-size:20px; }
-          .card ul { list-style:none; padding:0; margin:16px 0; }
-          .card li { margin-bottom:12px; font-size:16px; }
-          .card li strong { color:#b71c1c; }
-          .footer { background:#f5f5f5; padding:20px; text-align:center; font-size:13px; color:#666; }
-          .btn { display:inline-block; margin-top:20px; padding:12px 24px; background:#c62828; color:#fff; text-decoration:none; border-radius:6px; font-weight:600; }
-          @media (max-width:600px) {
-            .container { margin:10px; }
-            .content { padding:20px; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <!-- Header -->
-          <div class="header">
-            <h1>Custom Order Update</h1>
-          </div>
+      await transactionalApi.sendTransacEmail({
+        sender: {
+          name: "LayerLabs",
+          email: process.env.EMAIL_FROM,
+        },
+        to: [{ email: order.email }],
+        subject: `Update on Your Custom Order #${order._id.toString().slice(-6)}`,
+        htmlContent: `
+<!DOCTYPE html>
+<html>
+<body style="font-family:Arial">
+  <h2>Custom Order Update</h2>
+  <p>Hello <strong>${order.name}</strong>,</p>
+  <p><strong>Status:</strong> ${statusText}</p>
+  ${order.price ? `<p><strong>Price:</strong> ₹${order.price}</p>` : ''}
+  <p>
+    <a href="${FRONTEND_URL}/order-custom">View Order</a>
+  </p>
+</body>
+</html>
+        `,
+      });
 
-          <!-- Body -->
-          <div class="content">
-            <p>Hello <strong>${order.name}</strong>,</p>
-            <p>Your custom order has been updated. Here are the latest details:</p>
-
-            <div class="card">
-              <h2>Order Summary</h2>
-              <ul>
-                ${order.price ? `<li><strong>Price:</strong> ₹${order.price}</li>` : ''}
-                <li><strong>Status:</strong> ${statusText}</li>
-                <li><strong>Expected Delivery:</strong> ${
-                  order.expectedDelivery
-                    ? new Date(order.expectedDelivery).toLocaleDateString('en-IN', {
-                        weekday: 'long',
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric'
-                      })
-                    : 'To be confirmed'
-                }</li>
-              </ul>
-            </div>
-
-            <p>We will keep you posted on any further progress.</p>
-         <a href="${FRONTEND_URL}/order-custom" class="btn">View Order</a>
-
-          </div>
-
-          <!-- Footer -->
-          <div class="footer">
-            <p>Thank you for choosing us!</p>
-            <p style="margin:8px 0 0;">
-              <small>Order ID: ${order._id.toString()}</small>
-            </p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `,
-  };
-
-  await transporter.sendMail(mailOptions);
-  console.log(`Email sent to ${order.email}`);
-}
+      console.log(`📧 Email sent to ${order.email}`);
+    }
 
     res.json({ success: true, order });
   } catch (err) {
-    console.error('Update or email error:', err);
+    console.error('Update/email error:', err);
     res.status(500).json({ error: 'Failed to update or send email' });
   }
 });
 
-// CONFIRM PAYMENT (COD / ONLINE)
+// =====================
+// CONFIRM PAYMENT
+// =====================
 router.patch('/:id/pay', verifyToken, async (req, res) => {
   try {
-    const { payment, paymentStatus } = req.body;
-
     const order = await CustomizedOrder.findById(req.params.id);
-    if (!order) {
-      return res.status(404).json({ error: "Custom order not found" });
-    }
+    if (!order) return res.status(404).json({ error: "Not found" });
 
-    order.payment = payment || "COD";
-    order.paymentStatus = paymentStatus || "completed";
+    order.payment = req.body.payment || "COD";
+    order.paymentStatus = req.body.paymentStatus || "completed";
     order.status = "confirmed";
 
     await order.save();
-
     res.json({ success: true, order });
   } catch (err) {
-    console.error("PAY ERROR:", err);
+    console.error(err);
     res.status(500).json({ error: "Payment update failed" });
   }
 });
