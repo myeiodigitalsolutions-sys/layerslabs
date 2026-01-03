@@ -7,10 +7,9 @@ const admin = require('firebase-admin');
 const bucket = admin.storage().bucket();
 
 // Helper: Upload base64 image to Firebase Storage
-async function uploadImageToFirebase(base64String, originalName) {
+async function uploadImageToFirebase(base64String) {
   if (!base64String) return null;
 
-  // Extract mime type and buffer
   const matches = base64String.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
   if (!matches || matches.length !== 3) {
     throw new Error('Invalid base64 string');
@@ -19,32 +18,66 @@ async function uploadImageToFirebase(base64String, originalName) {
   const mimeType = matches[1];
   const base64Data = matches[2];
   const buffer = Buffer.from(base64Data, 'base64');
-
-  const extension = mimeType.split('/')[1]; // jpeg, png, etc.
+  const extension = mimeType.split('/')[1];
   const filename = `products/${Date.now()}-${Math.round(Math.random() * 1E9)}.${extension}`;
   const file = bucket.file(filename);
 
   await file.save(buffer, {
     metadata: { contentType: mimeType },
-    public: true, // Makes it publicly accessible
+    public: true,
   });
 
-  // Return public URL
   return `https://storage.googleapis.com/${bucket.name}/${filename}`;
 }
 
-// GET all products
+// GET all products with category hierarchy
 router.get('/', async (req, res) => {
   try {
-    const { category } = req.query;
-    const filter = category ? { category } : {};
+    const { category, subcategory } = req.query;
+    const filter = {};
+    
+    if (subcategory) {
+      filter.subcategory = subcategory;
+    } else if (category) {
+      filter.category = category;
+    }
+    
     const products = await Product.find(filter)
       .sort({ createdAt: -1 })
-      .populate('category', 'name');
+      .populate('category', 'name')
+      .populate('subcategory', 'name');
     res.json(products);
   } catch (err) {
     console.error('GET /api/products error', err);
     res.status(500).json({ message: 'Server error fetching products' });
+  }
+});
+
+// GET products by category with subcategories
+router.get('/by-category/:categoryId', async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    
+    // Get all subcategories of this category
+    const Category = require('../models/Category');
+    const subcategories = await Category.find({ parent: categoryId });
+    const subcategoryIds = subcategories.map(sub => sub._id);
+    
+    // Find products in this category OR any of its subcategories
+    const products = await Product.find({
+      $or: [
+        { category: categoryId },
+        { subcategory: { $in: subcategoryIds } }
+      ]
+    })
+    .populate('category', 'name')
+    .populate('subcategory', 'name')
+    .sort({ createdAt: -1 });
+    
+    res.json(products);
+  } catch (err) {
+    console.error('GET /api/products/by-category/:categoryId error', err);
+    res.status(500).json({ message: 'Server error fetching products by category' });
   }
 });
 
@@ -71,7 +104,9 @@ router.get('/search', async (req, res) => {
 // GET single product
 router.get('/:id', async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate('category', 'name');
+    const product = await Product.findById(req.params.id)
+      .populate('category', 'name')
+      .populate('subcategory', 'name');
     if (!product) return res.status(404).json({ message: 'Product not found' });
     res.json(product);
   } catch (err) {
@@ -85,17 +120,25 @@ router.post('/', async (req, res) => {
   try {
     const {
       name, price, rating, reviews, tag,
-      description, features, category,
-      images, // Now array of base64 strings
-      existingImages = [] // URLs from Firebase (already uploaded)
+      description, features, category, subcategory,
+      images, existingImages = []
     } = req.body;
 
-    // Parse features
+    // Validate category/subcategory relationship
+    if (subcategory && category) {
+      const Category = require('../models/Category');
+      const subCat = await Category.findById(subcategory);
+      if (subCat && subCat.parent && subCat.parent.toString() !== category) {
+        return res.status(400).json({ 
+          message: 'Subcategory does not belong to the selected category' 
+        });
+      }
+    }
+
     const featuresArray = features
       ? features.split(',').map(s => s.trim()).filter(Boolean)
       : [];
 
-    // Parse existing images (sent as JSON string sometimes)
     let existingImageUrls = [];
     if (typeof existingImages === 'string') {
       try { existingImageUrls = JSON.parse(existingImages); } catch (e) {}
@@ -103,20 +146,17 @@ router.post('/', async (req, res) => {
       existingImageUrls = existingImages;
     }
 
-    // Upload new images
     const newImageUrls = [];
     if (Array.isArray(images)) {
       for (const base64 of images) {
         if (base64 && base64.startsWith('data:')) {
           try {
-            const url = await uploadImageToFirebase(base64, 'product-image');
+            const url = await uploadImageToFirebase(base64);
             if (url) newImageUrls.push(url);
           } catch (uploadErr) {
             console.error('Image upload failed:', uploadErr);
-            // Continue with others
           }
         } else if (base64.startsWith('http')) {
-          // In case old URLs sneak in
           newImageUrls.push(base64);
         }
       }
@@ -134,6 +174,7 @@ router.post('/', async (req, res) => {
       features: featuresArray,
       images: allImages,
       category: category || null,
+      subcategory: subcategory || null,
     });
 
     const saved = await product.save();
@@ -149,10 +190,20 @@ router.put('/:id', async (req, res) => {
   try {
     const {
       name, price, rating, reviews, tag,
-      description, features, category,
-      images, // new base64 images
-      existingImages = []
+      description, features, category, subcategory,
+      images, existingImages = []
     } = req.body;
+
+    // Validate category/subcategory relationship
+    if (subcategory && category) {
+      const Category = require('../models/Category');
+      const subCat = await Category.findById(subcategory);
+      if (subCat && subCat.parent && subCat.parent.toString() !== category) {
+        return res.status(400).json({ 
+          message: 'Subcategory does not belong to the selected category' 
+        });
+      }
+    }
 
     const featuresArray = features
       ? features.split(',').map(s => s.trim()).filter(Boolean)
@@ -170,7 +221,7 @@ router.put('/:id', async (req, res) => {
       for (const base64 of images) {
         if (base64 && base64.startsWith('data:')) {
           try {
-            const url = await uploadImageToFirebase(base64, 'product-image');
+            const url = await uploadImageToFirebase(base64);
             if (url) newImageUrls.push(url);
           } catch (uploadErr) {
             console.error('Image upload failed:', uploadErr);
@@ -195,6 +246,7 @@ router.put('/:id', async (req, res) => {
         features: featuresArray,
         images: allImages,
         category: category || null,
+        subcategory: subcategory || null,
       },
       { new: true }
     );
@@ -212,10 +264,6 @@ router.delete('/:id', async (req, res) => {
   try {
     const deleted = await Product.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ message: 'Product not found' });
-
-    // Optional: Delete images from Firebase Storage
-    // You can extract filenames from URLs and delete them here
-
     res.json({ message: 'Product deleted successfully' });
   } catch (err) {
     console.error('DELETE /api/products/:id error', err);

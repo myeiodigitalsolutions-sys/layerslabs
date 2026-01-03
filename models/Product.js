@@ -16,6 +16,11 @@ const productSchema = new mongoose.Schema(
       ref: 'Category',
       default: null,
     },
+    subcategory: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category',
+      default: null,
+    },
   },
   { timestamps: true }
 );
